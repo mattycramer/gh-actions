@@ -1,0 +1,46 @@
+name: "Require release tip tag"
+description: "Ensure a tag points to the tip of a release branch and is not a merge commit"
+inputs:
+  release_branch:
+    description: "Release branch name to validate against"
+    required: false
+    default: "mcr/release"
+  remote:
+    description: "Git remote name to fetch"
+    required: false
+    default: "origin"
+runs:
+  using: "composite"
+  steps:
+    - name: Validate tag points to release tip
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -z "${GITHUB_SHA:-}" ]; then
+          echo "GITHUB_SHA is not set." >&2
+          exit 1
+        fi
+        if [ -z "${GITHUB_REF:-}" ]; then
+          echo "GITHUB_REF is not set." >&2
+          exit 1
+        fi
+        case "${GITHUB_REF}" in
+          refs/tags/*) ;;
+          *)
+            echo "Ref ${GITHUB_REF} is not a tag; refusing to proceed." >&2
+            exit 1
+            ;;
+        esac
+        remote="${{ inputs.remote }}"
+        release_branch="${{ inputs.release_branch }}"
+        git fetch --prune --tags "${remote}" "${release_branch}"
+        release_tip="$(git rev-parse "${remote}/${release_branch}")"
+        if [ "${GITHUB_SHA}" != "${release_tip}" ]; then
+          echo "Tag must point to the tip of ${release_branch} (${release_tip})." >&2
+          exit 1
+        fi
+        parents="$(git rev-list --parents -n 1 "${GITHUB_SHA}")"
+        if [ "$(echo "${parents}" | wc -w)" -ne 2 ]; then
+          echo "Tag must not be a merge commit." >&2
+          exit 1
+        fi
