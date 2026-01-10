@@ -33,7 +33,7 @@ runs:
         esac
         remote="${{ inputs.remote }}"
         release_branch="${{ inputs.release_branch }}"
-        git fetch --prune --tags "${remote}" "${release_branch}"
+        git fetch --prune "${remote}" "${release_branch}"
         release_tip="$(git rev-parse "${remote}/${release_branch}")"
         if [ "${GITHUB_SHA}" != "${release_tip}" ]; then
           echo "Tag must point to the tip of ${release_branch} (${release_tip})." >&2
