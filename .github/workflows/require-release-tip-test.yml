@@ -1,0 +1,22 @@
+name: require-release-tip (self-test)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  validate-action-structure:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate action metadata
+        run: |
+          set -euo pipefail
+          test -f require-release-tip/action.yml
+          grep -q '^name:' require-release-tip/action.yml
+          grep -q '^runs:' require-release-tip/action.yml
