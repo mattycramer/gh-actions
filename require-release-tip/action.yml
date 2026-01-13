@@ -1,5 +1,5 @@
 name: "Require release tip tag"
-description: "Ensure a tag points to the tip of a release branch and is not a merge commit"
+description: "Ensure a tag points to the tip of a release branch; optionally allow merge commits"
 inputs:
   release_branch:
     description: "Release branch name to validate against"
@@ -9,6 +9,10 @@ inputs:
     description: "Git remote name to fetch"
     required: false
     default: "origin"
+  allow_merge_commits:
+    description: "Allow tags that point to merge commits"
+    required: false
+    default: "false"
 runs:
   using: "composite"
   steps:
@@ -39,8 +43,10 @@ runs:
           echo "Tag must point to the tip of ${release_branch} (${release_tip})." >&2
           exit 1
         fi
-        parents="$(git rev-list --parents -n 1 "${GITHUB_SHA}")"
-        if [ "$(echo "${parents}" | wc -w)" -ne 2 ]; then
-          echo "Tag must not be a merge commit." >&2
-          exit 1
+        if [ "${{ inputs.allow_merge_commits }}" != "true" ]; then
+          parents="$(git rev-list --parents -n 1 "${GITHUB_SHA}")"
+          if [ "$(echo "${parents}" | wc -w)" -ne 2 ]; then
+            echo "Tag must not be a merge commit." >&2
+            exit 1
+          fi
         fi

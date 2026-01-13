@@ -4,7 +4,7 @@
 
 ### require-release-tip
 
-Ensures a tag points to the **tip** of a release branch and is **not** a merge commit.
+Ensures a tag points to the **tip** of a release branch; optionally requires it to **not** be a merge commit.
 
 Usage (recommended: pin to SHA):
 
@@ -17,6 +17,7 @@ Usage (recommended: pin to SHA):
 Optional inputs:
 - `release_branch` (default: `mcr/release`)
 - `remote` (default: `origin`)
+- `allow_merge_commits` (default: `false`)
 
 Security notes:
 - Pin to a full commit SHA for supply-chain safety.
