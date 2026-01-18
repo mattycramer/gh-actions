@@ -9,7 +9,7 @@ Ensures a tag points to the **tip** of a release branch; optionally requires it 
 Usage (recommended: pin to SHA):
 
 ```yaml
-- uses: 0r4m3r/gh-actions/require-release-tip@dde7f9b094c1abd78c58f1975b27cc953b62dba7
+- uses: emcram/gh-actions/require-release-tip@dde7f9b094c1abd78c58f1975b27cc953b62dba7
   with:
     release_branch: mcr/release
 ```
