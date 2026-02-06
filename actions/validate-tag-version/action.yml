@@ -34,7 +34,7 @@ runs:
   using: "composite"
   steps:
     - name: Require gl-* tag
-      uses: ./actions/require-gl-tag
+      uses: ../require-gl-tag
       with:
         tag: ${{ inputs.tag }}
         tag_prefix: ${{ inputs.tag_prefix }}
