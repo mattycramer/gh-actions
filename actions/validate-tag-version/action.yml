@@ -1,6 +1,10 @@
 name: "Validate tag version"
 description: "Ensure a tag matches a prefix and optional expected version"
 inputs:
+  tag:
+    description: "Optional tag name to validate (without refs/tags/). Defaults to GITHUB_REF."
+    required: false
+    default: ""
   tag_prefix:
     description: "Tag prefix to strip (e.g., gl-codex-rs-v)"
     required: true
@@ -32,6 +36,7 @@ runs:
     - name: Require gl-* tag
       uses: ./actions/require-gl-tag
       with:
+        tag: ${{ inputs.tag }}
         tag_prefix: ${{ inputs.tag_prefix }}
         tag_regex: ${{ inputs.tag_regex }}
 
@@ -40,7 +45,23 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        tag="${GITHUB_REF#refs/tags/}"
+        tag_input="${{ inputs.tag }}"
+        if [ -n "${tag_input}" ]; then
+          tag="${tag_input}"
+        else
+          if [ -z "${GITHUB_REF:-}" ]; then
+            echo "GITHUB_REF is not set and tag input was not provided." >&2
+            exit 1
+          fi
+          case "${GITHUB_REF}" in
+            refs/tags/*) ;;
+            *)
+              echo "Ref ${GITHUB_REF} is not a tag; refusing to proceed." >&2
+              exit 1
+              ;;
+          esac
+          tag="${GITHUB_REF#refs/tags/}"
+        fi
         prefix="${{ inputs.tag_prefix }}"
         if [[ "${tag}" != "${prefix}"* ]]; then
           echo "Tag ${tag} must start with ${prefix}." >&2

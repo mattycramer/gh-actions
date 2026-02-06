@@ -1,6 +1,10 @@
 name: "Require gl-* tag"
 description: "Ensure the workflow is running on a gl-* tag and optionally match a regex"
 inputs:
+  tag:
+    description: "Optional tag name to validate (without refs/tags/). Defaults to GITHUB_REF."
+    required: false
+    default: ""
   tag_prefix:
     description: "Required tag prefix"
     required: false
@@ -21,18 +25,23 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        if [ -z "${GITHUB_REF:-}" ]; then
-          echo "GITHUB_REF is not set." >&2
-          exit 1
-        fi
-        case "${GITHUB_REF}" in
-          refs/tags/*) ;;
-          *)
-            echo "Ref ${GITHUB_REF} is not a tag; refusing to proceed." >&2
+        tag_input="${{ inputs.tag }}"
+        if [ -n "${tag_input}" ]; then
+          tag="${tag_input}"
+        else
+          if [ -z "${GITHUB_REF:-}" ]; then
+            echo "GITHUB_REF is not set and tag input was not provided." >&2
             exit 1
-            ;;
-        esac
-        tag="${GITHUB_REF#refs/tags/}"
+          fi
+          case "${GITHUB_REF}" in
+            refs/tags/*) ;;
+            *)
+              echo "Ref ${GITHUB_REF} is not a tag; refusing to proceed." >&2
+              exit 1
+              ;;
+          esac
+          tag="${GITHUB_REF#refs/tags/}"
+        fi
         prefix="${{ inputs.tag_prefix }}"
         if [ -z "${prefix}" ]; then
           echo "tag_prefix must not be empty." >&2

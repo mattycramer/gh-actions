@@ -20,5 +20,6 @@ jobs:
           test -f actions/require-release-tip/action.yml
           test -f actions/require-gl-tag/action.yml
           test -f actions/validate-tag-version/action.yml
+          test -f .github/workflows/release-from-workflow-run.yml
           grep -q '^name:' require-release-tip/action.yml
           grep -q '^runs:' require-release-tip/action.yml

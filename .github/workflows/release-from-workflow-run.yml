@@ -1,0 +1,140 @@
+name: Release from workflow run
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag name for the release (without refs/tags/)."
+        required: true
+        type: string
+      tag_prefix:
+        description: "Tag prefix to validate (must start with gl-)."
+        required: false
+        type: string
+        default: "gl-"
+      allow_revision_suffix:
+        description: "Allow -r<digits> suffix in tag."
+        required: false
+        type: boolean
+        default: true
+      expected_version:
+        description: "Optional expected version to compare against."
+        required: false
+        type: string
+        default: ""
+      run_id:
+        description: "Workflow run ID to fetch artifacts from."
+        required: true
+        type: string
+      artifact_prefix:
+        description: "Prefix of the workflow artifact name to download."
+        required: true
+        type: string
+      tarball_prefix:
+        description: "Prefix for the tarball file name (without version)."
+        required: true
+        type: string
+      checksum_prefix:
+        description: "Prefix for the checksum file name (without version)."
+        required: true
+        type: string
+      release_name:
+        description: "Optional release name template (use {version} placeholder)."
+        required: false
+        type: string
+        default: ""
+    secrets:
+      token:
+        description: "Optional GitHub token override."
+        required: false
+
+jobs:
+  release:
+    name: Publish release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Validate release tag
+        id: tag
+        uses: ./actions/validate-tag-version
+        with:
+          tag: ${{ inputs.tag }}
+          tag_prefix: ${{ inputs.tag_prefix }}
+          expected_version: ${{ inputs.expected_version }}
+          allow_revision_suffix: ${{ inputs.allow_revision_suffix }}
+
+      - name: Download artifacts
+        env:
+          GH_TOKEN: ${{ secrets.token || secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ inputs.run_id }}
+          ARTIFACT_PREFIX: ${{ inputs.artifact_prefix }}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts"
+          resp="$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "${api}")"
+          artifact_url="$(printf '%s' "${resp}" | python3 - <<'PY'
+          import json
+          import sys
+          data = json.load(sys.stdin)
+          prefix = sys.argv[1]
+          url = ""
+          for artifact in data.get("artifacts", []):
+              if artifact.get("expired"):
+                  continue
+              name = artifact.get("name", "")
+              if name.startswith(prefix):
+                  url = artifact.get("archive_download_url", "")
+                  break
+          print(url)
+          PY
+          "${ARTIFACT_PREFIX}")"
+          if [ -z "${artifact_url}" ]; then
+            echo "No artifacts found for run ${RUN_ID} with prefix ${ARTIFACT_PREFIX}." >&2
+            echo "${resp}" >&2
+            exit 1
+          fi
+          mkdir -p packages
+          curl -sS -L -H "Authorization: Bearer ${GH_TOKEN}" -o /tmp/artifact.zip "${artifact_url}"
+          unzip -q /tmp/artifact.zip -d packages
+
+      - name: Verify artifacts
+        env:
+          BASE_VERSION: ${{ steps.tag.outputs.base_version }}
+          TARBALL_PREFIX: ${{ inputs.tarball_prefix }}
+          CHECKSUM_PREFIX: ${{ inputs.checksum_prefix }}
+        run: |
+          set -euo pipefail
+          tarball="${TARBALL_PREFIX}${BASE_VERSION}.tar.gz"
+          checksum="${CHECKSUM_PREFIX}${BASE_VERSION}.txt"
+          test -f "packages/${tarball}"
+          test -f "packages/${checksum}"
+
+      - name: Resolve release name
+        id: release-name
+        env:
+          BASE_VERSION: ${{ steps.tag.outputs.base_version }}
+          RELEASE_TEMPLATE: ${{ inputs.release_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_TEMPLATE}" ]; then
+            name="Release v${BASE_VERSION}"
+          else
+            name="${RELEASE_TEMPLATE//\{version\}/${BASE_VERSION}}"
+          fi
+          echo "name=${name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create GitHub release
+        uses: ncipollo/release-action@b7eabc95ff50cbeeedec83973935c8f306dfcd0b # v1.20.0
+        with:
+          artifacts: |
+            packages/${{ inputs.tarball_prefix }}${{ steps.tag.outputs.base_version }}.tar.gz
+            packages/${{ inputs.checksum_prefix }}${{ steps.tag.outputs.base_version }}.txt
+          tag: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.release-name.outputs.name }}
+          generateReleaseNotes: true
+          draft: false
+          allowUpdates: true
+          replacesArtifacts: true
+          token: ${{ secrets.token || secrets.GITHUB_TOKEN }}

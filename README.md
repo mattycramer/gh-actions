@@ -3,7 +3,7 @@
 ## Structure
 
 - `actions/` — shared composite actions (recommended paths)
-- `.github/workflows/` — self-tests for shared actions
+- `.github/workflows/` — reusable workflows + self-tests
 
 ## Actions
 
@@ -59,3 +59,26 @@ Usage:
 Notes:
 - All tag validation enforces `gl-*` prefixes by default.
 - This enables a shared policy: **only `gl-*` tags can build releases**.
+
+## Reusable workflows
+
+### release-from-workflow-run
+
+Creates a GitHub release from artifacts produced by a prior workflow run.
+
+Usage:
+
+```yaml
+jobs:
+  release:
+    uses: emcram/gh-actions/.github/workflows/release-from-workflow-run.yml@<sha>
+    with:
+      tag: ${{ github.event.workflow_run.head_branch }}
+      tag_prefix: gl-your-project-v
+      run_id: ${{ github.event.workflow_run.id }}
+      artifact_prefix: your-project-linux-x86_64-
+      tarball_prefix: your-project-linux-x86_64-
+      checksum_prefix: your-project-sha256-checksums-
+      release_name: your-project v{version}
+    secrets: inherit
+```
