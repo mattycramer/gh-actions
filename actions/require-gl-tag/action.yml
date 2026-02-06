@@ -1,0 +1,59 @@
+name: "Require gl-* tag"
+description: "Ensure the workflow is running on a gl-* tag and optionally match a regex"
+inputs:
+  tag_prefix:
+    description: "Required tag prefix"
+    required: false
+    default: "gl-"
+  tag_regex:
+    description: "Optional regex the tag must match (bash regex)"
+    required: false
+    default: ""
+outputs:
+  tag:
+    description: "Resolved tag name (without refs/tags/)"
+    value: ${{ steps.resolve.outputs.tag }}
+runs:
+  using: "composite"
+  steps:
+    - id: resolve
+      name: Validate gl-* tag
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -z "${GITHUB_REF:-}" ]; then
+          echo "GITHUB_REF is not set." >&2
+          exit 1
+        fi
+        case "${GITHUB_REF}" in
+          refs/tags/*) ;;
+          *)
+            echo "Ref ${GITHUB_REF} is not a tag; refusing to proceed." >&2
+            exit 1
+            ;;
+        esac
+        tag="${GITHUB_REF#refs/tags/}"
+        prefix="${{ inputs.tag_prefix }}"
+        if [ -z "${prefix}" ]; then
+          echo "tag_prefix must not be empty." >&2
+          exit 1
+        fi
+        case "${prefix}" in
+          gl-*) ;;
+          *)
+            echo "tag_prefix must start with gl- (got: ${prefix})." >&2
+            exit 1
+            ;;
+        esac
+        if [[ "${tag}" != "${prefix}"* ]]; then
+          echo "Tag ${tag} must start with ${prefix}." >&2
+          exit 1
+        fi
+        regex="${{ inputs.tag_regex }}"
+        if [ -n "${regex}" ]; then
+          if ! [[ "${tag}" =~ ${regex} ]]; then
+            echo "Tag ${tag} does not match regex ${regex}." >&2
+            exit 1
+          fi
+        fi
+        echo "tag=${tag}" >> "${GITHUB_OUTPUT}"

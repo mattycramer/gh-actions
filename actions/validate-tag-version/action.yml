@@ -1,0 +1,69 @@
+name: "Validate tag version"
+description: "Ensure a tag matches a prefix and optional expected version"
+inputs:
+  tag_prefix:
+    description: "Tag prefix to strip (e.g., gl-codex-rs-v)"
+    required: true
+  expected_version:
+    description: "Optional version to compare against"
+    required: false
+    default: ""
+  allow_revision_suffix:
+    description: "Allow -r<digits> suffix (ignored when comparing versions)"
+    required: false
+    default: "true"
+  tag_regex:
+    description: "Optional regex to validate tag (bash regex)"
+    required: false
+    default: ""
+outputs:
+  tag:
+    description: "Resolved tag name (without refs/tags/)"
+    value: ${{ steps.parse.outputs.tag }}
+  tag_version:
+    description: "Version extracted from tag (may include -rN suffix)"
+    value: ${{ steps.parse.outputs.tag_version }}
+  base_version:
+    description: "Version extracted from tag without revision suffix"
+    value: ${{ steps.parse.outputs.base_version }}
+runs:
+  using: "composite"
+  steps:
+    - name: Require gl-* tag
+      uses: ./actions/require-gl-tag
+      with:
+        tag_prefix: ${{ inputs.tag_prefix }}
+        tag_regex: ${{ inputs.tag_regex }}
+
+    - id: parse
+      name: Parse tag version
+      shell: bash
+      run: |
+        set -euo pipefail
+        tag="${GITHUB_REF#refs/tags/}"
+        prefix="${{ inputs.tag_prefix }}"
+        if [[ "${tag}" != "${prefix}"* ]]; then
+          echo "Tag ${tag} must start with ${prefix}." >&2
+          exit 1
+        fi
+        version="${tag#${prefix}}"
+        if [ -z "${version}" ]; then
+          echo "Tag ${tag} does not contain a version after ${prefix}." >&2
+          exit 1
+        fi
+        base_version="${version}"
+        if [ "${{ inputs.allow_revision_suffix }}" = "true" ]; then
+          base_version="${version%%-r*}"
+        fi
+        if ! [[ "${base_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "Tag version ${base_version} is not a valid semver (X.Y.Z)." >&2
+          exit 1
+        fi
+        expected="${{ inputs.expected_version }}"
+        if [ -n "${expected}" ] && [ "${base_version}" != "${expected}" ]; then
+          echo "Tag version ${base_version} does not match expected ${expected}." >&2
+          exit 1
+        fi
+        echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+        echo "tag_version=${version}" >> "${GITHUB_OUTPUT}"
+        echo "base_version=${base_version}" >> "${GITHUB_OUTPUT}"
