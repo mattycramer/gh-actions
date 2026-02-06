@@ -57,7 +57,7 @@ Usage:
 ```
 
 Notes:
-- All tag validation enforces `gl-*` prefixes by default.
+- `tag_prefix` is required and must start with `gl-`.
 - This enables a shared policy: **only `gl-*` tags can build releases**.
 
 ## Reusable workflows

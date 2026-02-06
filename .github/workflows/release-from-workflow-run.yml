@@ -9,9 +9,8 @@ on:
         type: string
       tag_prefix:
         description: "Tag prefix to validate (must start with gl-)."
-        required: false
+        required: true
         type: string
-        default: "gl-"
       allow_revision_suffix:
         description: "Allow -r<digits> suffix in tag."
         required: false
