@@ -3,7 +3,6 @@
 ## Structure
 
 - `actions/` — shared composite actions (recommended paths)
-- `require-release-tip/` — compatibility shim (kept for backward compatibility)
 - `.github/workflows/` — self-tests for shared actions
 
 ## Actions
@@ -16,13 +15,6 @@ Usage (recommended: pin to SHA):
 
 ```yaml
 - uses: emcram/gh-actions/actions/require-release-tip@dde7f9b094c1abd78c58f1975b27cc953b62dba7
-  with:
-    release_branch: mcr/release
-
-Compatibility path (legacy):
-
-```yaml
-- uses: emcram/gh-actions/require-release-tip@dde7f9b094c1abd78c58f1975b27cc953b62dba7
   with:
     release_branch: mcr/release
 ```

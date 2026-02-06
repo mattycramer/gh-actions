@@ -17,7 +17,6 @@ jobs:
       - name: Validate action metadata
         run: |
           set -euo pipefail
-          test -f require-release-tip/action.yml
           test -f actions/require-release-tip/action.yml
           test -f actions/require-gl-tag/action.yml
           test -f actions/validate-tag-version/action.yml
