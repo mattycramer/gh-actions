@@ -33,13 +33,6 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Require gl-* tag
-      uses: ../require-gl-tag
-      with:
-        tag: ${{ inputs.tag }}
-        tag_prefix: ${{ inputs.tag_prefix }}
-        tag_regex: ${{ inputs.tag_regex }}
-
     - id: parse
       name: Parse tag version
       shell: bash
@@ -63,9 +56,27 @@ runs:
           tag="${GITHUB_REF#refs/tags/}"
         fi
         prefix="${{ inputs.tag_prefix }}"
+        if [ -z "${prefix}" ]; then
+          echo "tag_prefix must not be empty." >&2
+          exit 1
+        fi
+        case "${prefix}" in
+          gl-*) ;;
+          *)
+            echo "tag_prefix must start with gl- (got: ${prefix})." >&2
+            exit 1
+            ;;
+        esac
         if [[ "${tag}" != "${prefix}"* ]]; then
           echo "Tag ${tag} must start with ${prefix}." >&2
           exit 1
+        fi
+        regex="${{ inputs.tag_regex }}"
+        if [ -n "${regex}" ]; then
+          if ! [[ "${tag}" =~ ${regex} ]]; then
+            echo "Tag ${tag} does not match regex ${regex}." >&2
+            exit 1
+          fi
         fi
         version="${tag#${prefix}}"
         if [ -z "${version}" ]; then
