@@ -147,7 +147,23 @@ jobs:
           set -euo pipefail
           api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts"
           resp="$(curl -fSs -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "${api}")"
-          artifact_url="$(printf '%s' "${resp}" | python3 -c 'import json,sys; data=json.load(sys.stdin); prefix=sys.argv[1]; url="";\nfor artifact in data.get("artifacts", []):\n    if artifact.get("expired"):\n        continue\n    name = artifact.get("name", "")\n    if name.startswith(prefix):\n        url = artifact.get("archive_download_url", "")\n        break\nprint(url)' "${ARTIFACT_PREFIX}")"
+          artifact_url="$(printf '%s' "${resp}" | ARTIFACT_PREFIX="${ARTIFACT_PREFIX}" python3 - <<'PY'
+          import json
+          import os
+          import sys
+          data = json.load(sys.stdin)
+          prefix = os.environ["ARTIFACT_PREFIX"]
+          url = ""
+          for artifact in data.get("artifacts", []):
+              if artifact.get("expired"):
+                  continue
+              name = artifact.get("name", "")
+              if name.startswith(prefix):
+                  url = artifact.get("archive_download_url", "")
+                  break
+          print(url)
+          PY
+          )"
           if [ -z "${artifact_url}" ]; then
             echo "No artifacts found for run ${RUN_ID} with prefix ${ARTIFACT_PREFIX}." >&2
             echo "${resp}" >&2
