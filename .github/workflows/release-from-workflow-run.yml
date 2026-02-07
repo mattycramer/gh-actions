@@ -226,16 +226,9 @@ jobs:
           api_base="https://api.github.com"
           page=1
           while :; do
-            resp="$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
-              "${api_base}/repos/${repo}/actions/artifacts?per_page=100&page=${page}")"
-            ids="$(printf '%s' "${resp}" | python3 - <<'PY'
-            import json
-            import sys
-            data = json.load(sys.stdin)
-            ids = [str(artifact["id"]) for artifact in data.get("artifacts", []) if artifact.get("id")]
-            print("\n".join(ids))
-            PY
-            )"
+          resp="$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+            "${api_base}/repos/${repo}/actions/artifacts?per_page=100&page=${page}")"
+          ids="$(printf '%s' "${resp}" | python3 -c 'import json,sys; data=json.load(sys.stdin); print("\n".join(str(a["id"]) for a in data.get("artifacts", []) if a.get("id")))' )"
             if [ -z "${ids}" ]; then
               break
             fi
@@ -259,16 +252,9 @@ jobs:
 
           page=1
           while :; do
-            cache_resp="$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+          cache_resp="$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
               "${api_base}/repos/${repo}/actions/caches?per_page=100&page=${page}")"
-            cache_ids="$(printf '%s' "${cache_resp}" | python3 - <<'PY'
-            import json
-            import sys
-            data = json.load(sys.stdin)
-            ids = [str(item["id"]) for item in data.get("actions_caches", []) if item.get("id")]
-            print("\n".join(ids))
-            PY
-            )"
+          cache_ids="$(printf '%s' "${cache_resp}" | python3 -c 'import json,sys; data=json.load(sys.stdin); print("\n".join(str(item["id"]) for item in data.get("actions_caches", []) if item.get("id")))' )"
             if [ -z "${cache_ids}" ]; then
               break
             fi
