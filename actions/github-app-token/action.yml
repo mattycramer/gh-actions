@@ -1,0 +1,239 @@
+name: "GitHub App token"
+description: "Create a GitHub App installation token via BWS-managed secrets."
+inputs:
+  bws-access-token:
+    description: "BWS access token"
+    required: true
+  bws-project-id:
+    description: "BWS project id"
+    required: true
+  bws-version:
+    description: "BWS CLI version"
+    required: true
+  bws-sha256:
+    description: "BWS CLI sha256"
+    required: true
+  secrets:
+    description: "Comma-separated secret names to fetch"
+    required: false
+    default: "GH_ORG_RELEASE,GH_ORG_RELEASE_APP_ID,GH_ORG_RELEASE_APP_INSTALL_ID,GH_ORG_RELEASE_APP_PEM"
+  output-dir:
+    description: "Output directory for secret files"
+    required: false
+    default: "bws"
+outputs:
+  token:
+    description: "GitHub App installation token"
+    value: ${{ steps.token.outputs.token }}
+  org:
+    description: "GitHub org login"
+    value: ${{ steps.token.outputs.org }}
+  app_id:
+    description: "GitHub App id"
+    value: ${{ steps.token.outputs.app_id }}
+  installation_id:
+    description: "GitHub App installation id"
+    value: ${{ steps.token.outputs.installation_id }}
+runs:
+  using: "composite"
+  steps:
+    - name: Validate BWS inputs
+      shell: bash
+      env:
+        BWS_VERSION: ${{ inputs.bws-version }}
+        BWS_SHA256: ${{ inputs.bws-sha256 }}
+      run: |
+        set -euo pipefail
+        if [ -z "${BWS_VERSION}" ]; then
+          echo "bws-version is required." >&2
+          exit 1
+        fi
+        if [ -z "${BWS_SHA256}" ]; then
+          echo "bws-sha256 is required." >&2
+          exit 1
+        fi
+    - name: Fetch GitHub App secrets
+      uses: shared-common/gh-actions-shared/.github/actions/bws-fetch@9ab134ec04b39da8a91b39df5911048f7ae00c38
+      with:
+        access-token: ${{ inputs.bws-access-token }}
+        project-id: ${{ inputs.bws-project-id }}
+        secrets: ${{ inputs.secrets }}
+        bws-version: ${{ inputs.bws-version }}
+        bws-sha256: ${{ inputs.bws-sha256 }}
+        output-dir: ${{ inputs.output-dir }}
+    - id: token
+      name: Generate GitHub App token
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        require_file() {
+          local var_name="$1"
+          local value="${!var_name:-}"
+          if [ -z "${value}" ]; then
+            echo "${var_name} is not set." >&2
+            exit 1
+          fi
+          if [ ! -f "${value}" ]; then
+            echo "${var_name} does not exist at ${value}." >&2
+            exit 1
+          fi
+          printf '%s' "${value}"
+        }
+
+        read_scalar() {
+          local path="$1"
+          local value
+          value="$(cat "${path}")"
+          value="$(printf '%s' "${value}" | tr -d '[:space:]')"
+          if [ -z "${value}" ]; then
+            echo "Secret at ${path} is empty after normalization." >&2
+            exit 1
+          fi
+          printf '%s' "${value}"
+        }
+
+        org_file="$(require_file GH_ORG_RELEASE_FILE)"
+        app_id_file="$(require_file GH_ORG_RELEASE_APP_ID_FILE)"
+        install_id_file="$(require_file GH_ORG_RELEASE_APP_INSTALL_ID_FILE)"
+        pem_file="$(require_file GH_ORG_RELEASE_APP_PEM_FILE)"
+
+        org="$(read_scalar "${org_file}")"
+        app_id="$(read_scalar "${app_id_file}")"
+        install_id="$(read_scalar "${install_id_file}")"
+        pem_raw="$(cat "${pem_file}")"
+        if [ -z "${pem_raw}" ]; then
+          echo "GH_ORG_RELEASE_APP_PEM resolved to empty." >&2
+          exit 1
+        fi
+        if ! [[ "${app_id}" =~ ^[0-9]+$ ]]; then
+          echo "GH_ORG_RELEASE_APP_ID must be numeric (got ${app_id})." >&2
+          exit 1
+        fi
+        if ! [[ "${install_id}" =~ ^[0-9]+$ ]]; then
+          echo "GH_ORG_RELEASE_APP_INSTALL_ID must be numeric (got ${install_id})." >&2
+          exit 1
+        fi
+        if ! command -v openssl >/dev/null 2>&1; then
+          echo "openssl is required but not installed." >&2
+          exit 1
+        fi
+
+        tmp_dir="$(mktemp -d)"
+        key_file="${tmp_dir}/app.pem"
+        app_resp="${tmp_dir}/app.json"
+        inst_resp="${tmp_dir}/inst.json"
+        token_resp="${tmp_dir}/token.json"
+        trap 'rm -rf "${tmp_dir}"' EXIT
+
+        if printf '%s' "${pem_raw}" | grep -q "BEGIN"; then
+          printf '%s' "${pem_raw}" | sed -e 's/\\n/\n/g' -e 's/\r//g' > "${key_file}"
+        else
+          if printf '%s' "${pem_raw}" | base64 -d > "${key_file}" 2>/dev/null; then
+            if ! grep -q "BEGIN" "${key_file}"; then
+              printf '%s' "${pem_raw}" | sed -e 's/\\n/\n/g' -e 's/\r//g' > "${key_file}"
+            fi
+          else
+            printf '%s' "${pem_raw}" | sed -e 's/\\n/\n/g' -e 's/\r//g' > "${key_file}"
+          fi
+        fi
+        chmod 600 "${key_file}"
+
+        b64url() { openssl base64 -e -A | tr '+/' '-_' | tr -d '='; }
+        now="$(date +%s)"
+        exp="$((now + 540))"
+        header='{"alg":"RS256","typ":"JWT"}'
+        payload="$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' "${now}" "${exp}" "${app_id}")"
+        unsigned="$(printf '%s' "${header}" | b64url).$(printf '%s' "${payload}" | b64url)"
+        signature="$(printf '%s' "${unsigned}" | openssl dgst -binary -sha256 -sign "${key_file}" | b64url)"
+        jwt="${unsigned}.${signature}"
+
+        app_status="$(curl -sS -o "${app_resp}" -w "%{http_code}" \
+          -H "Authorization: Bearer ${jwt}" \
+          -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/app")" || {
+          echo "Failed to validate GitHub App JWT." >&2
+          exit 1
+        }
+        if [ "${app_status}" != "200" ]; then
+          echo "GitHub App JWT invalid (status ${app_status})." >&2
+          head -c 2000 "${app_resp}" >&2 || true
+          exit 1
+        fi
+        app_id_resp="$(python3 - "${app_resp}" <<'PY'
+        import json
+        import sys
+        with open(sys.argv[1], "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        value = data.get("id")
+        print(value if value is not None else "")
+        PY
+        )"
+        if [ -z "${app_id_resp}" ] || [ "${app_id_resp}" != "${app_id}" ]; then
+          echo "GitHub App ID mismatch (expected ${app_id}, got ${app_id_resp:-unknown})." >&2
+          exit 1
+        fi
+
+        inst_status="$(curl -sS -o "${inst_resp}" -w "%{http_code}" \
+          -H "Authorization: Bearer ${jwt}" \
+          -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/app/installations/${install_id}")" || {
+          echo "Failed to validate GitHub App installation ${install_id}." >&2
+          exit 1
+        }
+        if [ "${inst_status}" != "200" ]; then
+          echo "GitHub App installation ${install_id} invalid (status ${inst_status})." >&2
+          head -c 2000 "${inst_resp}" >&2 || true
+          exit 1
+        fi
+        inst_login="$(python3 - "${inst_resp}" <<'PY'
+        import json
+        import sys
+        with open(sys.argv[1], "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        account = data.get("account") or {}
+        print(account.get("login", ""))
+        PY
+        )"
+        if [ -n "${inst_login}" ] && [ "${inst_login}" != "${org}" ]; then
+          echo "GitHub App installation account mismatch (expected ${org}, got ${inst_login})." >&2
+          exit 1
+        fi
+
+        token_status="$(curl -sS -o "${token_resp}" -w "%{http_code}" -X POST \
+          -H "Authorization: Bearer ${jwt}" \
+          -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/app/installations/${install_id}/access_tokens")" || {
+          echo "Failed to request GitHub installation token." >&2
+          exit 1
+        }
+        if [ "${token_status}" != "201" ]; then
+          echo "GitHub token request failed (status ${token_status})." >&2
+          head -c 2000 "${token_resp}" >&2 || true
+          exit 1
+        fi
+        token="$(python3 - "${token_resp}" <<'PY'
+        import json
+        import sys
+        with open(sys.argv[1], "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        value = data.get("token", "")
+        if not value:
+            raise SystemExit(1)
+        print(value)
+        PY
+        )" || {
+          echo "Failed to parse GitHub installation token response." >&2
+          exit 1
+        }
+        token="$(printf '%s' "${token}" | tr -d '\r\n')"
+        if [ -z "${token}" ]; then
+          echo "GitHub installation token is empty after normalization." >&2
+          exit 1
+        fi
+
+        echo "::add-mask::${token}"
+        echo "token=${token}" >> "${GITHUB_OUTPUT}"
+        echo "org=${org}" >> "${GITHUB_OUTPUT}"
+        echo "app_id=${app_id}" >> "${GITHUB_OUTPUT}"
+        echo "installation_id=${install_id}" >> "${GITHUB_OUTPUT}"

@@ -42,18 +42,38 @@ on:
         required: false
         type: string
         default: ""
+      bws_version:
+        description: "BWS CLI version used to fetch GitHub App secrets."
+        required: false
+        type: string
+        default: ""
+      bws_sha256:
+        description: "BWS CLI sha256 checksum for the selected version."
+        required: false
+        type: string
+        default: ""
+      bws_secrets:
+        description: "Comma-separated BWS secret names for GitHub App auth."
+        required: false
+        type: string
+        default: "GH_ORG_RELEASE,GH_ORG_RELEASE_APP_ID,GH_ORG_RELEASE_APP_INSTALL_ID,GH_ORG_RELEASE_APP_PEM"
     secrets:
       token:
         description: "Optional GitHub token override."
         required: false
+      BWS_ACCESS_TOKEN:
+        description: "BWS access token."
+        required: true
+      BWS_PROJECT_ID:
+        description: "BWS project id."
+        required: true
 
 jobs:
   release:
     name: Publish release
     runs-on: ubuntu-24.04
     permissions:
-      contents: write
-      actions: read
+      contents: read
     steps:
       - name: Validate release tag
         id: tag
@@ -107,9 +127,19 @@ jobs:
           echo "tag_version=${version}" >> "${GITHUB_OUTPUT}"
           echo "base_version=${base_version}" >> "${GITHUB_OUTPUT}"
 
+      - name: Resolve GitHub App token
+        id: app-token
+        uses: ./actions/github-app-token
+        with:
+          bws-access-token: ${{ secrets.BWS_ACCESS_TOKEN }}
+          bws-project-id: ${{ secrets.BWS_PROJECT_ID }}
+          bws-version: ${{ inputs.bws_version != '' && inputs.bws_version || vars.BWS_VERSION }}
+          bws-sha256: ${{ inputs.bws_sha256 != '' && inputs.bws_sha256 || vars.BWS_SHA256 }}
+          secrets: ${{ inputs.bws_secrets }}
+
       - name: Download artifacts
         env:
-          GH_TOKEN: ${{ secrets.token || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.token }}
           RUN_ID: ${{ inputs.run_id }}
           ARTIFACT_PREFIX: ${{ inputs.artifact_prefix }}
         run: |
@@ -179,4 +209,53 @@ jobs:
           draft: false
           allowUpdates: true
           replacesArtifacts: true
-          token: ${{ secrets.token || secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token || secrets.token }}
+
+      - name: Delete workflow artifacts and logs
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY}"
+          api_base="https://api.github.com"
+          resp="$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+            "${api_base}/repos/${repo}/actions/runs/${RUN_ID}/artifacts")"
+          ids="$(printf '%s' "${resp}" | python3 - <<'PY'
+          import json
+          import sys
+          data = json.load(sys.stdin)
+          ids = [str(artifact["id"]) for artifact in data.get("artifacts", []) if artifact.get("id")]
+          print("\n".join(ids))
+          PY
+          )"
+          if [ -n "${ids}" ]; then
+            while IFS= read -r artifact_id; do
+              [ -z "${artifact_id}" ] && continue
+              status="$(curl -sS -o /tmp/delete-artifact.json -w "%{http_code}" -X DELETE \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "${api_base}/repos/${repo}/actions/artifacts/${artifact_id}")" || {
+                  echo "Failed to delete artifact ${artifact_id}." >&2
+                  exit 1
+                }
+              if [ "${status}" != "204" ] && [ "${status}" != "202" ]; then
+                echo "Artifact delete failed for ${artifact_id} (status ${status})." >&2
+                head -c 2000 /tmp/delete-artifact.json >&2 || true
+                exit 1
+              fi
+            done <<< "${ids}"
+          fi
+          log_status="$(curl -sS -o /tmp/delete-logs.json -w "%{http_code}" -X DELETE \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "${api_base}/repos/${repo}/actions/runs/${RUN_ID}/logs")" || {
+              echo "Failed to delete workflow run logs." >&2
+              exit 1
+            }
+          if [ "${log_status}" != "204" ] && [ "${log_status}" != "202" ]; then
+            echo "Workflow log delete failed (status ${log_status})." >&2
+            head -c 2000 /tmp/delete-logs.json >&2 || true
+            exit 1
+          fi
