@@ -57,12 +57,55 @@ jobs:
     steps:
       - name: Validate release tag
         id: tag
-        uses: ./actions/validate-tag-version
-        with:
-          tag: ${{ inputs.tag }}
-          tag_prefix: ${{ inputs.tag_prefix }}
-          expected_version: ${{ inputs.expected_version }}
-          allow_revision_suffix: ${{ inputs.allow_revision_suffix }}
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_TAG_PREFIX: ${{ inputs.tag_prefix }}
+          INPUT_EXPECTED_VERSION: ${{ inputs.expected_version }}
+          INPUT_ALLOW_REVISION_SUFFIX: ${{ inputs.allow_revision_suffix }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG}"
+          prefix="${INPUT_TAG_PREFIX}"
+          if [ -z "${tag}" ]; then
+            echo "tag input is required." >&2
+            exit 1
+          fi
+          if [ -z "${prefix}" ]; then
+            echo "tag_prefix must not be empty." >&2
+            exit 1
+          fi
+          case "${prefix}" in
+            gl-*) ;;
+            *)
+              echo "tag_prefix must start with gl- (got: ${prefix})." >&2
+              exit 1
+              ;;
+          esac
+          if [[ "${tag}" != "${prefix}"* ]]; then
+            echo "Tag ${tag} must start with ${prefix}." >&2
+            exit 1
+          fi
+          version="${tag#${prefix}}"
+          if [ -z "${version}" ]; then
+            echo "Tag ${tag} does not contain a version after ${prefix}." >&2
+            exit 1
+          fi
+          base_version="${version}"
+          if [ "${INPUT_ALLOW_REVISION_SUFFIX}" = "true" ]; then
+            base_version="${version%%-r*}"
+          fi
+          if ! [[ "${base_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag version ${base_version} is not a valid semver (X.Y.Z)." >&2
+            exit 1
+          fi
+          expected="${INPUT_EXPECTED_VERSION}"
+          if [ -n "${expected}" ] && [ "${base_version}" != "${expected}" ]; then
+            echo "Tag version ${base_version} does not match expected ${expected}." >&2
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "tag_version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "base_version=${base_version}" >> "${GITHUB_OUTPUT}"
 
       - name: Download artifacts
         env:
