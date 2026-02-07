@@ -74,6 +74,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      actions: write
     steps:
       - name: Validate release tag
         id: tag
@@ -215,8 +216,6 @@ jobs:
         if: ${{ always() }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.token }}
-          RUN_ID: ${{ inputs.run_id }}
-          TAG_NAME: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN}" ]; then
@@ -225,17 +224,21 @@ jobs:
           fi
           repo="${GITHUB_REPOSITORY}"
           api_base="https://api.github.com"
-          resp="$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
-            "${api_base}/repos/${repo}/actions/runs/${RUN_ID}/artifacts")"
-          ids="$(printf '%s' "${resp}" | python3 - <<'PY'
-          import json
-          import sys
-          data = json.load(sys.stdin)
-          ids = [str(artifact["id"]) for artifact in data.get("artifacts", []) if artifact.get("id")]
-          print("\n".join(ids))
-          PY
-          )"
-          if [ -n "${ids}" ]; then
+          page=1
+          while :; do
+            resp="$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "${api_base}/repos/${repo}/actions/artifacts?per_page=100&page=${page}")"
+            ids="$(printf '%s' "${resp}" | python3 - <<'PY'
+            import json
+            import sys
+            data = json.load(sys.stdin)
+            ids = [str(artifact["id"]) for artifact in data.get("artifacts", []) if artifact.get("id")]
+            print("\n".join(ids))
+            PY
+            )"
+            if [ -z "${ids}" ]; then
+              break
+            fi
             while IFS= read -r artifact_id; do
               [ -z "${artifact_id}" ] && continue
               status="$(curl -sS -o /tmp/delete-artifact.json -w "%{http_code}" -X DELETE \
@@ -251,11 +254,13 @@ jobs:
                 exit 1
               fi
             done <<< "${ids}"
-          fi
-          if [ -n "${TAG_NAME}" ]; then
-            ref="refs/tags/${TAG_NAME}"
+            page=$((page + 1))
+          done
+
+          page=1
+          while :; do
             cache_resp="$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
-              "${api_base}/repos/${repo}/actions/caches?ref=${ref}")"
+              "${api_base}/repos/${repo}/actions/caches?per_page=100&page=${page}")"
             cache_ids="$(printf '%s' "${cache_resp}" | python3 - <<'PY'
             import json
             import sys
@@ -264,21 +269,23 @@ jobs:
             print("\n".join(ids))
             PY
             )"
-            if [ -n "${cache_ids}" ]; then
-              while IFS= read -r cache_id; do
-                [ -z "${cache_id}" ] && continue
-                cache_status="$(curl -sS -o /tmp/delete-cache.json -w "%{http_code}" -X DELETE \
-                  -H "Authorization: Bearer ${GH_TOKEN}" \
-                  -H "Accept: application/vnd.github+json" \
-                  "${api_base}/repos/${repo}/actions/caches/${cache_id}")" || {
-                    echo "Failed to delete cache ${cache_id}." >&2
-                    exit 1
-                  }
-                if [ "${cache_status}" != "204" ] && [ "${cache_status}" != "202" ]; then
-                  echo "Cache delete failed for ${cache_id} (status ${cache_status})." >&2
-                  head -c 2000 /tmp/delete-cache.json >&2 || true
-                  exit 1
-                fi
-              done <<< "${cache_ids}"
+            if [ -z "${cache_ids}" ]; then
+              break
             fi
-          fi
+            while IFS= read -r cache_id; do
+              [ -z "${cache_id}" ] && continue
+              cache_status="$(curl -sS -o /tmp/delete-cache.json -w "%{http_code}" -X DELETE \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "${api_base}/repos/${repo}/actions/caches/${cache_id}")" || {
+                  echo "Failed to delete cache ${cache_id}." >&2
+                  exit 1
+                }
+              if [ "${cache_status}" != "204" ] && [ "${cache_status}" != "202" ]; then
+                echo "Cache delete failed for ${cache_id} (status ${cache_status})." >&2
+                head -c 2000 /tmp/delete-cache.json >&2 || true
+                exit 1
+              fi
+            done <<< "${cache_ids}"
+            page=$((page + 1))
+          done
