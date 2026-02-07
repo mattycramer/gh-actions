@@ -211,13 +211,18 @@ jobs:
           replacesArtifacts: true
           token: ${{ steps.app-token.outputs.token || secrets.token }}
 
-      - name: Delete workflow artifacts and logs
-        if: ${{ success() }}
+      - name: Delete workflow artifacts and caches
+        if: ${{ always() }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.token }}
           RUN_ID: ${{ inputs.run_id }}
+          TAG_NAME: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "GH_TOKEN is not set; cannot delete artifacts/caches." >&2
+            exit 1
+          fi
           repo="${GITHUB_REPOSITORY}"
           api_base="https://api.github.com"
           resp="$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
@@ -247,15 +252,33 @@ jobs:
               fi
             done <<< "${ids}"
           fi
-          log_status="$(curl -sS -o /tmp/delete-logs.json -w "%{http_code}" -X DELETE \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "${api_base}/repos/${repo}/actions/runs/${RUN_ID}/logs")" || {
-              echo "Failed to delete workflow run logs." >&2
-              exit 1
-            }
-          if [ "${log_status}" != "204" ] && [ "${log_status}" != "202" ]; then
-            echo "Workflow log delete failed (status ${log_status})." >&2
-            head -c 2000 /tmp/delete-logs.json >&2 || true
-            exit 1
+          if [ -n "${TAG_NAME}" ]; then
+            ref="refs/tags/${TAG_NAME}"
+            cache_resp="$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "${api_base}/repos/${repo}/actions/caches?ref=${ref}")"
+            cache_ids="$(printf '%s' "${cache_resp}" | python3 - <<'PY'
+            import json
+            import sys
+            data = json.load(sys.stdin)
+            ids = [str(item["id"]) for item in data.get("actions_caches", []) if item.get("id")]
+            print("\n".join(ids))
+            PY
+            )"
+            if [ -n "${cache_ids}" ]; then
+              while IFS= read -r cache_id; do
+                [ -z "${cache_id}" ] && continue
+                cache_status="$(curl -sS -o /tmp/delete-cache.json -w "%{http_code}" -X DELETE \
+                  -H "Authorization: Bearer ${GH_TOKEN}" \
+                  -H "Accept: application/vnd.github+json" \
+                  "${api_base}/repos/${repo}/actions/caches/${cache_id}")" || {
+                    echo "Failed to delete cache ${cache_id}." >&2
+                    exit 1
+                  }
+                if [ "${cache_status}" != "204" ] && [ "${cache_status}" != "202" ]; then
+                  echo "Cache delete failed for ${cache_id} (status ${cache_status})." >&2
+                  head -c 2000 /tmp/delete-cache.json >&2 || true
+                  exit 1
+                fi
+              done <<< "${cache_ids}"
+            fi
           fi

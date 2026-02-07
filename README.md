@@ -119,4 +119,4 @@ jobs:
 Notes:
 - Requires `BWS_ACCESS_TOKEN` and `BWS_PROJECT_ID` secrets (and the GitHub App secrets in BWS).
 - `bws_version`/`bws_sha256` default to `vars.BWS_VERSION` and `vars.BWS_SHA256` when unset.
-- Deletes workflow artifacts and logs for the referenced `run_id` after a successful release.
+- Deletes workflow artifacts and caches for the referenced `run_id` and tag ref (logs are retained).
