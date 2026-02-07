@@ -130,7 +130,7 @@ jobs:
 
       - name: Resolve GitHub App token
         id: app-token
-        uses: ./actions/github-app-token
+        uses: mattycramer/gh-actions/actions/github-app-token@24fa0b1b9c20445eb84e314dde824752572595c0
         with:
           bws-access-token: ${{ secrets.BWS_ACCESS_TOKEN }}
           bws-project-id: ${{ secrets.BWS_PROJECT_ID }}

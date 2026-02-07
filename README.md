@@ -121,3 +121,6 @@ Notes:
 - `bws_version`/`bws_sha256` default to `vars.BWS_VERSION` and `vars.BWS_SHA256` when unset.
 - Deletes **all** workflow artifacts and caches in the repo (logs are retained).
   - This is destructive and will wipe caches for every ref; only use if that matches org policy.
+ - Allow-list the reusable workflow **and** the github-app-token action:
+   - `mattycramer/gh-actions/.github/workflows/release-from-workflow-run.yml@<sha>`
+   - `mattycramer/gh-actions/actions/github-app-token@24fa0b1b9c20445eb84e314dde824752572595c0`
