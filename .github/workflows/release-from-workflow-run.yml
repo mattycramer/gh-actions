@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       allow_revision_suffix:
-        description: "Allow -r<digits> suffix in tag."
+        description: "Allow common revision suffixes in tag."
         required: false
         type: boolean
         default: true
@@ -113,10 +113,18 @@ jobs:
           fi
           base_version="${version}"
           if [ "${INPUT_ALLOW_REVISION_SUFFIX}" = "true" ]; then
-            base_version="${version%%-r*}"
+            if [[ "${version}" =~ ^(.+)-r[0-9]+(-[0-9]+)?$ ]]; then
+              base_version="${BASH_REMATCH[1]}"
+            elif [[ "${version}" =~ ^(r[0-9]+)-[0-9]+$ ]]; then
+              base_version="${BASH_REMATCH[1]}"
+            fi
           fi
-          if ! [[ "${base_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Tag version ${base_version} is not a valid semver (X.Y.Z)." >&2
+          if ! [[ "${version}" =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then
+            echo "Tag version ${version} contains unsupported characters." >&2
+            exit 1
+          fi
+          if ! [[ "${base_version}" =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then
+            echo "Tag base version ${base_version} contains unsupported characters." >&2
             exit 1
           fi
           expected="${INPUT_EXPECTED_VERSION}"

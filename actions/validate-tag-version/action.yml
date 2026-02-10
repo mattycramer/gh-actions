@@ -13,7 +13,7 @@ inputs:
     required: false
     default: ""
   allow_revision_suffix:
-    description: "Allow -r<digits> suffix (ignored when comparing versions)"
+    description: "Allow common revision suffixes (ignored when comparing versions)"
     required: false
     default: "true"
   tag_regex:
@@ -25,10 +25,10 @@ outputs:
     description: "Resolved tag name (without refs/tags/)"
     value: ${{ steps.parse.outputs.tag }}
   tag_version:
-    description: "Version extracted from tag (may include -rN suffix)"
+    description: "Version extracted from tag (may include a revision suffix)"
     value: ${{ steps.parse.outputs.tag_version }}
   base_version:
-    description: "Version extracted from tag without revision suffix"
+    description: "Version extracted from tag without optional revision suffix"
     value: ${{ steps.parse.outputs.base_version }}
 runs:
   using: "composite"
@@ -85,10 +85,18 @@ runs:
         fi
         base_version="${version}"
         if [ "${{ inputs.allow_revision_suffix }}" = "true" ]; then
-          base_version="${version%%-r*}"
+          if [[ "${version}" =~ ^(.+)-r[0-9]+(-[0-9]+)?$ ]]; then
+            base_version="${BASH_REMATCH[1]}"
+          elif [[ "${version}" =~ ^(r[0-9]+)-[0-9]+$ ]]; then
+            base_version="${BASH_REMATCH[1]}"
+          fi
         fi
-        if ! [[ "${base_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-          echo "Tag version ${base_version} is not a valid semver (X.Y.Z)." >&2
+        if ! [[ "${version}" =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then
+          echo "Tag version ${version} contains unsupported characters." >&2
+          exit 1
+        fi
+        if ! [[ "${base_version}" =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then
+          echo "Tag base version ${base_version} contains unsupported characters." >&2
           exit 1
         fi
         expected="${{ inputs.expected_version }}"

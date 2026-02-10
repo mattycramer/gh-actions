@@ -72,7 +72,7 @@ Usage:
 - uses: emcram/gh-actions/actions/require-gl-tag@<sha>
   with:
     tag_prefix: gl-
-    tag_regex: '^gl-your-project-v[0-9]+\.[0-9]+\.[0-9]+(-r[0-9]+)?$'
+    tag_regex: '^gl-your-project-v[0-9A-Za-z][0-9A-Za-z._+-]*$'
 ```
 
 ### validate-tag-version
@@ -92,6 +92,7 @@ Usage:
 Notes:
 - `tag_prefix` is required and must start with `gl-`.
 - This enables a shared policy: **only `gl-*` tags can build releases**.
+- Versions accept broad patterns like `130.0.6723.69`, `1.2.3-rc1`, and revision forms like `r9-1` or `1.2.3-r9-2`.
 
 ## Reusable workflows
 
