@@ -107,7 +107,7 @@ jobs:
   release:
     uses: emcram/gh-actions/.github/workflows/release-from-workflow-run.yml@<sha>
     with:
-      tag: ${{ github.event.workflow_run.head_branch }}
+      tag: ${{ needs.resolve_tag.outputs.tag }}
       tag_prefix: gl-your-project-v
       run_id: ${{ github.event.workflow_run.id }}
       artifact_prefix: your-project-linux-x86_64-
@@ -118,6 +118,7 @@ jobs:
 ```
 
 Notes:
+- For tag-driven `workflow_run` callers, resolve the tag from `github.event.workflow_run.head_sha` (do not rely on `head_branch`).
 - Requires `BWS_ACCESS_TOKEN` and `BWS_PROJECT_ID` secrets (and the GitHub App secrets in BWS).
 - `bws_version`/`bws_sha256` default to `vars.BWS_VERSION` and `vars.BWS_SHA256` when unset.
 - Deletes **all** workflow artifacts and caches in the repo (logs are retained).
@@ -125,3 +126,26 @@ Notes:
  - Allow-list the reusable workflow **and** the github-app-token action:
    - `mattycramer/gh-actions/.github/workflows/release-from-workflow-run.yml@<sha>`
    - `mattycramer/gh-actions/actions/github-app-token@24fa0b1b9c20445eb84e314dde824752572595c0`
+
+### security-gates
+
+Runs shared dependency and vulnerability gates for repo-agnostic callers.
+
+Usage:
+
+```yaml
+jobs:
+  security:
+    uses: mattycramer/gh-actions/.github/workflows/security-gates.yml@<sha>
+    with:
+      caller_event_name: ${{ github.event_name }}
+      fail_on_severity: high
+      osv_scan_args: |-
+        -r
+        .
+```
+
+Notes:
+- Pass `caller_event_name: ${{ github.event_name }}` so PR-only checks evaluate correctly.
+- `dependency-review-action` runs only when `caller_event_name` is `pull_request`.
+- `osv-scanner-action` runs for any caller event unless disabled.

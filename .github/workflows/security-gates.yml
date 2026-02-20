@@ -1,0 +1,66 @@
+name: Security gates
+
+on:
+  workflow_call:
+    inputs:
+      fail_on_severity:
+        description: "Dependency review severity threshold."
+        required: false
+        type: string
+        default: high
+      osv_scan_args:
+        description: "OSV scanner arguments."
+        required: false
+        type: string
+        default: |-
+          -r
+          .
+      enable_dependency_review:
+        description: "Run dependency review gate."
+        required: false
+        type: boolean
+        default: true
+      enable_osv_scan:
+        description: "Run OSV scanner gate."
+        required: false
+        type: boolean
+        default: true
+      caller_event_name:
+        description: "Caller workflow event name (for pull request-only gates)."
+        required: false
+        type: string
+        default: workflow_call
+
+jobs:
+  dependency-review:
+    if: ${{ inputs.enable_dependency_review && inputs.caller_event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Dependency review
+        uses: actions/dependency-review-action@3c4e3dcb1aa7874d2c16be7d79418e9b7efd6261 # v4
+        with:
+          fail-on-severity: ${{ inputs.fail_on_severity }}
+
+  osv-scan:
+    if: ${{ inputs.enable_osv_scan }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: OSV Scanner
+        uses: google/osv-scanner-action@c5996e0193a3df57d695c1b8a1dec2a4c62e8730 # v2.3.3
+        with:
+          scan-args: ${{ inputs.osv_scan_args }}
