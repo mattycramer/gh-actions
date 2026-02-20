@@ -30,6 +30,11 @@ on:
         required: false
         type: string
         default: workflow_call
+      checkout_ref:
+        description: "Optional git ref to scan (branch, tag, or SHA)."
+        required: false
+        type: string
+        default: ""
 
 jobs:
   dependency-review:
@@ -43,6 +48,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.checkout_ref != '' && inputs.checkout_ref || github.sha }}
           persist-credentials: false
       - name: Dependency review
         uses: actions/dependency-review-action@3c4e3dcb1aa7874d2c16be7d79418e9b7efd6261 # v4
@@ -59,6 +65,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.checkout_ref != '' && inputs.checkout_ref || github.sha }}
           persist-credentials: false
       - name: OSV Scanner
         uses: google/osv-scanner-action@c5996e0193a3df57d695c1b8a1dec2a4c62e8730 # v2.3.3

@@ -57,6 +57,23 @@ on:
         required: false
         type: string
         default: "GH_ORG_RELEASE,GH_ORG_RELEASE_APP_ID,GH_ORG_RELEASE_APP_INSTALL_ID,GH_ORG_RELEASE_APP_PEM"
+      run_security_gates:
+        description: "Run shared security gates before publishing."
+        required: false
+        type: boolean
+        default: true
+      security_fail_on_severity:
+        description: "Dependency review severity threshold (for shared security gates)."
+        required: false
+        type: string
+        default: high
+      security_osv_scan_args:
+        description: "OSV scan arguments for shared security gates."
+        required: false
+        type: string
+        default: |-
+          -r
+          .
     secrets:
       token:
         description: "Optional GitHub token override."
@@ -69,8 +86,23 @@ on:
         required: true
 
 jobs:
+  security-gates:
+    name: Shared security gates
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/security-gates.yml
+    with:
+      caller_event_name: workflow_run
+      checkout_ref: ${{ inputs.tag }}
+      enable_dependency_review: false
+      enable_osv_scan: ${{ inputs.run_security_gates }}
+      fail_on_severity: ${{ inputs.security_fail_on_severity }}
+      osv_scan_args: ${{ inputs.security_osv_scan_args }}
+
   release:
     name: Publish release
+    needs: security-gates
     runs-on: ubuntu-24.04
     permissions:
       contents: read

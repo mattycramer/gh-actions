@@ -121,6 +121,7 @@ Notes:
 - For tag-driven `workflow_run` callers, resolve the tag from `github.event.workflow_run.head_sha` (do not rely on `head_branch`).
 - Requires `BWS_ACCESS_TOKEN` and `BWS_PROJECT_ID` secrets (and the GitHub App secrets in BWS).
 - `bws_version`/`bws_sha256` default to `vars.BWS_VERSION` and `vars.BWS_SHA256` when unset.
+- Runs shared `security-gates` before publishing by default; disable with `run_security_gates: false` if needed.
 - Deletes **all** workflow artifacts and caches in the repo (logs are retained).
   - This is destructive and will wipe caches for every ref; only use if that matches org policy.
  - Allow-list the reusable workflow **and** the github-app-token action:
@@ -139,6 +140,7 @@ jobs:
     uses: mattycramer/gh-actions/.github/workflows/security-gates.yml@<sha>
     with:
       caller_event_name: ${{ github.event_name }}
+      checkout_ref: ${{ github.sha }}
       fail_on_severity: high
       osv_scan_args: |-
         -r
