@@ -1,16 +1,16 @@
-name: "Require gl-* tag"
-description: "Ensure the workflow is running on a gl-* tag and optionally match a regex"
+name: "Require release tag"
+description: "Ensure the workflow is running on a tag with a trailing 1-10 digit suffix"
 inputs:
   tag:
     description: "Optional tag name to validate (without refs/tags/). Defaults to GITHUB_REF."
     required: false
     default: ""
   tag_prefix:
-    description: "Required tag prefix"
+    description: "Optional required tag prefix"
     required: false
-    default: "gl-"
+    default: ""
   tag_regex:
-    description: "Optional regex the tag must match (bash regex)"
+    description: "Optional regex the tag must match (bash regex). Defaults to trailing 1-10 digit suffix policy."
     required: false
     default: ""
 outputs:
@@ -21,7 +21,7 @@ runs:
   using: "composite"
   steps:
     - id: resolve
-      name: Validate gl-* tag
+      name: Validate release tag
       shell: bash
       run: |
         set -euo pipefail
@@ -42,27 +42,18 @@ runs:
           esac
           tag="${GITHUB_REF#refs/tags/}"
         fi
+        policy_regex='(^[0-9]{1,10}$|^.*[^0-9][0-9]{1,10}$)'
         prefix="${{ inputs.tag_prefix }}"
-        if [ -z "${prefix}" ]; then
-          echo "tag_prefix must not be empty." >&2
-          exit 1
-        fi
-        case "${prefix}" in
-          gl-*) ;;
-          *)
-            echo "tag_prefix must start with gl- (got: ${prefix})." >&2
-            exit 1
-            ;;
-        esac
-        if [[ "${tag}" != "${prefix}"* ]]; then
+        if [ -n "${prefix}" ] && [[ "${tag}" != "${prefix}"* ]]; then
           echo "Tag ${tag} must start with ${prefix}." >&2
           exit 1
         fi
         regex="${{ inputs.tag_regex }}"
-        if [ -n "${regex}" ]; then
-          if ! [[ "${tag}" =~ ${regex} ]]; then
-            echo "Tag ${tag} does not match regex ${regex}." >&2
-            exit 1
-          fi
+        if [ -z "${regex}" ]; then
+          regex="${policy_regex}"
+        fi
+        if ! [[ "${tag}" =~ ${regex} ]]; then
+          echo "Tag ${tag} does not match regex ${regex}." >&2
+          exit 1
         fi
         echo "tag=${tag}" >> "${GITHUB_OUTPUT}"

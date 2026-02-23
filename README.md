@@ -64,16 +64,20 @@ Security notes:
 
 ### require-gl-tag
 
-Ensures a workflow runs only on `gl-*` tags (optionally validates a regex).
+Ensures a workflow runs only on tags that match release-tag policy.
 
 Usage:
 
 ```yaml
 - uses: emcram/gh-actions/actions/require-gl-tag@<sha>
   with:
-    tag_prefix: gl-
-    tag_regex: '^gl-your-project-v[0-9A-Za-z][0-9A-Za-z._+-]*$'
+    tag_regex: '(^[0-9]{1,10}$|^.*[^0-9][0-9]{1,10}$)'
 ```
+
+Default policy when `tag_regex` is omitted:
+- Tag must end with a numeric suffix.
+- Trailing numeric suffix length must be between 1 and 10 digits.
+- Optional `tag_prefix` can still be used for stricter project-local matching.
 
 ### validate-tag-version
 
@@ -84,15 +88,13 @@ Usage:
 ```yaml
 - uses: emcram/gh-actions/actions/validate-tag-version@<sha>
   with:
-    tag_prefix: gl-your-project-v
-    expected_version: ${{ steps.version.outputs.package_version }}
     allow_revision_suffix: "true"
 ```
 
 Notes:
-- `tag_prefix` is required and must start with `gl-`.
-- This enables a shared policy: **only `gl-*` tags can build releases**.
-- Versions accept broad patterns like `130.0.6723.69`, `1.2.3-rc1`, and revision forms like `r9-1` or `1.2.3-r9-2`.
+- `tag_prefix` is optional.
+- Default tag policy requires only a trailing numeric suffix of 1-10 digits.
+- `expected_version` is optional and compares against the parsed base version.
 
 ## Reusable workflows
 
@@ -108,7 +110,6 @@ jobs:
     uses: emcram/gh-actions/.github/workflows/release-from-workflow-run.yml@<sha>
     with:
       tag: ${{ needs.resolve_tag.outputs.tag }}
-      tag_prefix: gl-your-project-v
       run_id: ${{ github.event.workflow_run.id }}
       artifact_prefix: your-project-linux-x86_64-
       tarball_prefix: your-project-linux-x86_64-
@@ -119,6 +120,7 @@ jobs:
 
 Notes:
 - For tag-driven `workflow_run` callers, resolve the tag from `github.event.workflow_run.head_sha` (do not rely on `head_branch`).
+- Tags must pass the default trailing 1-10 digit suffix policy unless a custom `tag_regex` is provided.
 - Requires `BWS_ACCESS_TOKEN` and `BWS_PROJECT_ID` secrets (and the GitHub App secrets in BWS).
 - `bws_version`/`bws_sha256` default to `vars.BWS_VERSION` and `vars.BWS_SHA256` when unset.
 - Runs shared `security-gates` before publishing by default; disable with `run_security_gates: false` if needed.

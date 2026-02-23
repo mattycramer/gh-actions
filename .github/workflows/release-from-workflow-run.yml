@@ -8,9 +8,15 @@ on:
         required: true
         type: string
       tag_prefix:
-        description: "Tag prefix to validate (must start with gl-)."
-        required: true
+        description: "Optional tag prefix to validate and strip before parsing version."
+        required: false
         type: string
+        default: ""
+      tag_regex:
+        description: "Optional regex for tag validation (bash regex). Defaults to trailing 1-10 digit suffix policy."
+        required: false
+        type: string
+        default: ""
       allow_revision_suffix:
         description: "Allow common revision suffixes in tag."
         required: false
@@ -113,7 +119,7 @@ jobs:
         env:
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_TAG_PREFIX: ${{ inputs.tag_prefix }}
-          INPUT_EXPECTED_VERSION: ${{ inputs.expected_version }}
+          INPUT_TAG_REGEX: ${{ inputs.tag_regex }}
           INPUT_ALLOW_REVISION_SUFFIX: ${{ inputs.allow_revision_suffix }}
         run: |
           set -euo pipefail
@@ -123,25 +129,27 @@ jobs:
             echo "tag input is required." >&2
             exit 1
           fi
-          if [ -z "${prefix}" ]; then
-            echo "tag_prefix must not be empty." >&2
+          policy_regex='(^[0-9]{1,10}$|^.*[^0-9][0-9]{1,10}$)'
+          regex="${INPUT_TAG_REGEX}"
+          if [ -z "${regex}" ]; then
+            regex="${policy_regex}"
+          fi
+          if ! [[ "${tag}" =~ ${regex} ]]; then
+            echo "Tag ${tag} does not match regex ${regex}." >&2
             exit 1
           fi
-          case "${prefix}" in
-            gl-*) ;;
-            *)
-              echo "tag_prefix must start with gl- (got: ${prefix})." >&2
-              exit 1
-              ;;
-          esac
-          if [[ "${tag}" != "${prefix}"* ]]; then
+          if [ -n "${prefix}" ] && [[ "${tag}" != "${prefix}"* ]]; then
             echo "Tag ${tag} must start with ${prefix}." >&2
             exit 1
           fi
-          version="${tag#${prefix}}"
-          if [ -z "${version}" ]; then
-            echo "Tag ${tag} does not contain a version after ${prefix}." >&2
-            exit 1
+          if [ -n "${prefix}" ]; then
+            version="${tag#${prefix}}"
+            if [ -z "${version}" ]; then
+              echo "Tag ${tag} does not contain a version after ${prefix}." >&2
+              exit 1
+            fi
+          else
+            version="${tag}"
           fi
           base_version="${version}"
           if [ "${INPUT_ALLOW_REVISION_SUFFIX}" = "true" ]; then
@@ -150,19 +158,6 @@ jobs:
             elif [[ "${version}" =~ ^(r[0-9]+)-[0-9]+$ ]]; then
               base_version="${BASH_REMATCH[1]}"
             fi
-          fi
-          if ! [[ "${version}" =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then
-            echo "Tag version ${version} contains unsupported characters." >&2
-            exit 1
-          fi
-          if ! [[ "${base_version}" =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then
-            echo "Tag base version ${base_version} contains unsupported characters." >&2
-            exit 1
-          fi
-          expected="${INPUT_EXPECTED_VERSION}"
-          if [ -n "${expected}" ] && [ "${base_version}" != "${expected}" ]; then
-            echo "Tag version ${base_version} does not match expected ${expected}." >&2
-            exit 1
           fi
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "tag_version=${version}" >> "${GITHUB_OUTPUT}"
@@ -232,9 +227,49 @@ jobs:
           curl -sS -L -H "Authorization: Bearer ${GH_TOKEN}" -o /tmp/artifact.zip "${artifact_url}"
           unzip -q /tmp/artifact.zip -d packages
 
+      - name: Resolve artifact version
+        id: artifact-version
+        env:
+          TARBALL_PREFIX: ${{ inputs.tarball_prefix }}
+          CHECKSUM_PREFIX: ${{ inputs.checksum_prefix }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tarballs=(packages/${TARBALL_PREFIX}*.tar.gz)
+          checksums=(packages/${CHECKSUM_PREFIX}*.txt)
+          shopt -u nullglob
+          if [ "${#tarballs[@]}" -ne 1 ]; then
+            echo "Expected exactly one tarball for prefix ${TARBALL_PREFIX}, found ${#tarballs[@]}." >&2
+            exit 1
+          fi
+          if [ "${#checksums[@]}" -ne 1 ]; then
+            echo "Expected exactly one checksum file for prefix ${CHECKSUM_PREFIX}, found ${#checksums[@]}." >&2
+            exit 1
+          fi
+          tarball_name="$(basename "${tarballs[0]}")"
+          checksum_name="$(basename "${checksums[0]}")"
+          artifact_version="${tarball_name#${TARBALL_PREFIX}}"
+          artifact_version="${artifact_version%.tar.gz}"
+          checksum_version="${checksum_name#${CHECKSUM_PREFIX}}"
+          checksum_version="${checksum_version%.txt}"
+          if [ -z "${artifact_version}" ] || [ -z "${checksum_version}" ]; then
+            echo "Failed to resolve artifact version from downloaded files." >&2
+            exit 1
+          fi
+          if [ "${artifact_version}" != "${checksum_version}" ]; then
+            echo "Tarball/checksum versions do not match (${artifact_version} vs ${checksum_version})." >&2
+            exit 1
+          fi
+          if [ -n "${EXPECTED_VERSION}" ] && [ "${artifact_version}" != "${EXPECTED_VERSION}" ]; then
+            echo "Artifact version ${artifact_version} does not match expected ${EXPECTED_VERSION}." >&2
+            exit 1
+          fi
+          echo "version=${artifact_version}" >> "${GITHUB_OUTPUT}"
+
       - name: Verify artifacts
         env:
-          BASE_VERSION: ${{ steps.tag.outputs.base_version }}
+          BASE_VERSION: ${{ steps.artifact-version.outputs.version }}
           TARBALL_PREFIX: ${{ inputs.tarball_prefix }}
           CHECKSUM_PREFIX: ${{ inputs.checksum_prefix }}
         run: |
@@ -247,7 +282,7 @@ jobs:
       - name: Resolve release name
         id: release-name
         env:
-          BASE_VERSION: ${{ steps.tag.outputs.base_version }}
+          BASE_VERSION: ${{ steps.artifact-version.outputs.version }}
           RELEASE_TEMPLATE: ${{ inputs.release_name }}
         run: |
           set -euo pipefail
@@ -262,8 +297,8 @@ jobs:
         uses: ncipollo/release-action@b7eabc95ff50cbeeedec83973935c8f306dfcd0b # v1.20.0
         with:
           artifacts: |
-            packages/${{ inputs.tarball_prefix }}${{ steps.tag.outputs.base_version }}.tar.gz
-            packages/${{ inputs.checksum_prefix }}${{ steps.tag.outputs.base_version }}.txt
+            packages/${{ inputs.tarball_prefix }}${{ steps.artifact-version.outputs.version }}.tar.gz
+            packages/${{ inputs.checksum_prefix }}${{ steps.artifact-version.outputs.version }}.txt
           tag: ${{ steps.tag.outputs.tag }}
           name: ${{ steps.release-name.outputs.name }}
           generateReleaseNotes: true
